@@ -556,8 +556,8 @@ async function renderAnalytics() {
             </div>
             <span class="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Active</span>
           </div>
-          <div class="text-4xl font-bold mb-1">${activeProjects}</div>
-          <div class="text-blue-100 text-sm">of ${totalProjects} total projects</div>
+          <div class="text-4xl font-bold mb-1" data-counter="${activeProjects}">0</div>
+          <div class="text-blue-100 text-sm">of <span data-counter="${totalProjects}">0</span> total projects</div>
           <div class="mt-3 flex items-center text-sm">
             <i class="fas fa-arrow-up mr-1"></i>
             <span>12% from last month</span>
@@ -572,8 +572,8 @@ async function renderAnalytics() {
             </div>
             <span class="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Rate</span>
           </div>
-          <div class="text-4xl font-bold mb-1">${overallCompletion}%</div>
-          <div class="text-green-100 text-sm">${completedTasks} of ${totalTasks} tasks done</div>
+          <div class="text-4xl font-bold mb-1" data-counter="${overallCompletion}" data-percentage="true">0%</div>
+          <div class="text-green-100 text-sm"><span data-counter="${completedTasks}">0</span> of <span data-counter="${totalTasks}">0</span> tasks done</div>
           <div class="mt-3 flex items-center text-sm">
             <i class="fas fa-arrow-up mr-1"></i>
             <span>8% improvement</span>
@@ -588,7 +588,7 @@ async function renderAnalytics() {
             </div>
             <span class="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Risks</span>
           </div>
-          <div class="text-4xl font-bold mb-1">${totalRisks}</div>
+          <div class="text-4xl font-bold mb-1" data-counter="${totalRisks}">0</div>
           <div class="text-orange-100 text-sm">Across all projects</div>
           <div class="mt-3 flex items-center text-sm">
             <i class="fas fa-arrow-down mr-1"></i>
@@ -604,7 +604,7 @@ async function renderAnalytics() {
             </div>
             <span class="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Pending</span>
           </div>
-          <div class="text-4xl font-bold mb-1">${overview.pending_approvals}</div>
+          <div class="text-4xl font-bold mb-1" data-counter="${overview.pending_approvals}">0</div>
           <div class="text-purple-100 text-sm">Awaiting review</div>
           <div class="mt-3 flex items-center text-sm">
             <i class="fas fa-minus mr-1"></i>
@@ -626,15 +626,15 @@ async function renderAnalytics() {
           </div>
           <div class="mt-6 grid grid-cols-3 gap-4 text-center">
             <div>
-              <div class="text-2xl font-bold text-green-600">${statusCounts.active || 0}</div>
+              <div class="text-2xl font-bold text-green-600" data-counter="${statusCounts.active || 0}">0</div>
               <div class="text-sm text-gray-600">Active</div>
             </div>
             <div>
-              <div class="text-2xl font-bold text-blue-600">${statusCounts.completed || 0}</div>
+              <div class="text-2xl font-bold text-blue-600" data-counter="${statusCounts.completed || 0}">0</div>
               <div class="text-sm text-gray-600">Completed</div>
             </div>
             <div>
-              <div class="text-2xl font-bold text-orange-600">${statusCounts.on_hold || 0}</div>
+              <div class="text-2xl font-bold text-orange-600" data-counter="${statusCounts.on_hold || 0}">0</div>
               <div class="text-sm text-gray-600">On Hold</div>
             </div>
           </div>
@@ -651,19 +651,19 @@ async function renderAnalytics() {
           </div>
           <div class="mt-6 grid grid-cols-4 gap-2 text-center">
             <div>
-              <div class="text-xl font-bold text-red-600">${priorityCounts.urgent}</div>
+              <div class="text-xl font-bold text-red-600" data-counter="${priorityCounts.urgent}">0</div>
               <div class="text-xs text-gray-600">Urgent</div>
             </div>
             <div>
-              <div class="text-xl font-bold text-orange-600">${priorityCounts.high}</div>
+              <div class="text-xl font-bold text-orange-600" data-counter="${priorityCounts.high}">0</div>
               <div class="text-xs text-gray-600">High</div>
             </div>
             <div>
-              <div class="text-xl font-bold text-yellow-600">${priorityCounts.medium}</div>
+              <div class="text-xl font-bold text-yellow-600" data-counter="${priorityCounts.medium}">0</div>
               <div class="text-xs text-gray-600">Medium</div>
             </div>
             <div>
-              <div class="text-xl font-bold text-gray-600">${priorityCounts.low}</div>
+              <div class="text-xl font-bold text-gray-600" data-counter="${priorityCounts.low}">0</div>
               <div class="text-xs text-gray-600">Low</div>
             </div>
           </div>
@@ -702,7 +702,7 @@ async function renderAnalytics() {
                   <div class="flex-1">
                     <div class="flex items-center justify-between mb-2">
                       <span class="font-medium text-gray-900">${project.name}</span>
-                      <span class="text-sm font-semibold text-green-600">${completionRate}%</span>
+                      <span class="text-sm font-semibold text-green-600" data-counter="${completionRate}" data-percentage="true">0%</span>
                     </div>
                     <div class="w-full bg-gray-200 rounded-full h-2">
                       <div class="bg-gradient-to-r from-green-400 to-green-600 h-2 rounded-full transition-all duration-500" style="width: ${completionRate}%"></div>
@@ -1139,6 +1139,31 @@ async function askAssistant(event) {
   }
 }
 
+// ========== NUMBER COUNTER ANIMATION ==========
+function animateCounter(element, target, duration = 1000, isPercentage = false) {
+  const start = 0;
+  const increment = target / (duration / 16); // 60fps
+  let current = 0;
+  
+  const timer = setInterval(() => {
+    current += increment;
+    if (current >= target) {
+      current = target;
+      clearInterval(timer);
+    }
+    element.textContent = isPercentage ? Math.round(current) + '%' : Math.round(current);
+  }, 16);
+}
+
+function animateAllCounters() {
+  // Animate all elements with data-counter attribute
+  document.querySelectorAll('[data-counter]').forEach(el => {
+    const target = parseInt(el.getAttribute('data-counter'));
+    const isPercentage = el.getAttribute('data-percentage') === 'true';
+    animateCounter(el, target, 1200, isPercentage);
+  });
+}
+
 // ========== CHART INITIALIZATION ==========
 async function initAnalyticsCharts() {
   const [overview, projectHealth, allProjects, allTasks] = await Promise.all([
@@ -1315,9 +1340,12 @@ async function renderApp() {
     </div>
   `;
   
-  // Initialize charts if on analytics page
+  // Initialize charts and counter animations if on analytics page
   if (currentView === 'analytics') {
-    setTimeout(() => initAnalyticsCharts(), 100);
+    setTimeout(() => {
+      initAnalyticsCharts();
+      animateAllCounters();
+    }, 100);
   }
 }
 
