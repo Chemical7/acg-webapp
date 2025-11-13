@@ -83,17 +83,7 @@ function viewApproval(approvalId) {
   navigate('approvals');
 }
 
-function viewReport(reportId) {
-  showToast('Report details coming soon!', 'info');
-}
 
-function viewProjectReports(projectId) {
-  showToast('Project reports view coming soon!', 'info');
-}
-
-function showCreateReportModal() {
-  showToast('Create report modal coming soon!', 'info');
-}
 
 function renderNavigation() {
   return `
@@ -608,232 +598,421 @@ async function renderApprovals() {
 
 // ========== REPORTS VIEW ==========
 async function renderReports() {
-  const [contactReports, projects, analytics, projectHealth] = await Promise.all([
+  const [contactReports, projects, analytics, projectHealth, allTasks, allRisks] = await Promise.all([
     apiCall('/contact-reports'),
     apiCall('/projects'),
     apiCall('/analytics/overview'),
-    apiCall('/analytics/project-health')
+    apiCall('/analytics/project-health'),
+    apiCall('/tasks'),
+    apiCall('/risks')
   ]);
   
-  // Group reports by project
-  const reportsByProject = {};
-  contactReports.reports.forEach(report => {
-    if (!reportsByProject[report.project_id]) {
-      reportsByProject[report.project_id] = [];
-    }
-    reportsByProject[report.project_id].push(report);
+  // Calculate date ranges
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay());
+  startOfWeek.setHours(0, 0, 0, 0);
+  
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+  
+  // Weekly Stats
+  const tasksThisWeek = allTasks.tasks.filter(t => new Date(t.created_at) >= startOfWeek);
+  const tasksCompletedThisWeek = allTasks.tasks.filter(t => 
+    t.status === 'completed' && new Date(t.updated_at) >= startOfWeek
+  );
+  const tasksOverdueThisWeek = allTasks.tasks.filter(t => 
+    t.status !== 'completed' && t.due_date && new Date(t.due_date) < now && new Date(t.due_date) >= startOfWeek
+  );
+  
+  // Monthly Stats
+  const tasksThisMonth = allTasks.tasks.filter(t => new Date(t.created_at) >= startOfMonth);
+  const tasksCompletedThisMonth = allTasks.tasks.filter(t => 
+    t.status === 'completed' && new Date(t.updated_at) >= startOfMonth
+  );
+  const tasksLastMonth = allTasks.tasks.filter(t => 
+    new Date(t.created_at) >= startOfLastMonth && new Date(t.created_at) <= endOfLastMonth
+  );
+  const tasksCompletedLastMonth = allTasks.tasks.filter(t => 
+    t.status === 'completed' && new Date(t.updated_at) >= startOfLastMonth && new Date(t.updated_at) <= endOfLastMonth
+  );
+  
+  // Risk Stats
+  const risksThisWeek = allRisks.risks.filter(r => new Date(r.created_at) >= startOfWeek);
+  const risksResolvedThisWeek = allRisks.risks.filter(r => 
+    r.status === 'closed' && new Date(r.updated_at) >= startOfWeek
+  );
+  const risksThisMonth = allRisks.risks.filter(r => new Date(r.created_at) >= startOfMonth);
+  const risksResolvedThisMonth = allRisks.risks.filter(r => 
+    r.status === 'closed' && new Date(r.updated_at) >= startOfMonth
+  );
+  const openRisks = allRisks.risks.filter(r => r.status === 'open');
+  
+  // Contact Report Stats
+  const contactReportsThisWeek = contactReports.reports.filter(r => {
+    const reportDate = new Date(r.meeting_date || r.created_at);
+    return reportDate >= startOfWeek;
+  });
+  const contactReportsThisMonth = contactReports.reports.filter(r => {
+    const reportDate = new Date(r.meeting_date || r.created_at);
+    return reportDate >= startOfMonth;
   });
   
-  // Calculate summary stats
-  const totalReports = contactReports.reports.length;
-  const reportsThisMonth = contactReports.reports.filter(r => {
-    const reportDate = new Date(r.meeting_date || r.created_at);
-    const now = new Date();
-    return reportDate.getMonth() === now.getMonth() && reportDate.getFullYear() === now.getFullYear();
-  }).length;
-  
+  // Project Stats
   const activeProjects = projects.projects.filter(p => p.status === 'active').length;
+  const projectsWithRisks = projectHealth.project_health.filter(p => p.open_risks > 0).length;
+  const projectsWithOverdue = projectHealth.project_health.filter(p => p.overdue_tasks > 0).length;
   
   return `
     <div class="space-y-6">
       <!-- Header -->
       <div class="flex items-center justify-between">
         <h1 class="text-3xl font-bold text-gray-900">
-          <i class="fas fa-file-invoice mr-3"></i>Reports & Documentation
+          <i class="fas fa-chart-bar mr-3"></i>Operational Reports
         </h1>
-        <button onclick="showCreateReportModal()" class="btn-primary">
-          <i class="fas fa-plus mr-2"></i>New Contact Report
+        <div class="text-sm text-gray-500">
+          <i class="fas fa-calendar mr-2"></i>Reporting Period: ${formatDate(startOfMonth)} - Today
+        </div>
+      </div>
+      
+      <!-- Period Selector Tabs -->
+      <div class="bg-white rounded-lg shadow p-1 inline-flex">
+        <button onclick="selectReportPeriod('week')" id="period-week" class="px-4 py-2 rounded text-sm font-medium bg-blue-600 text-white">
+          This Week
+        </button>
+        <button onclick="selectReportPeriod('month')" id="period-month" class="px-4 py-2 rounded text-sm font-medium text-gray-600 hover:bg-gray-100">
+          This Month
+        </button>
+        <button onclick="selectReportPeriod('comparison')" id="period-comparison" class="px-4 py-2 rounded text-sm font-medium text-gray-600 hover:bg-gray-100">
+          Month Comparison
         </button>
       </div>
       
-      <!-- Summary Cards -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
-          <div class="flex items-center justify-between mb-4">
-            <div class="bg-white/20 rounded-lg p-3">
-              <i class="fas fa-file-alt text-2xl"></i>
+      <!-- Weekly Report Section -->
+      <div id="report-week" class="report-section">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">
+          <i class="fas fa-calendar-week mr-2"></i>Weekly Summary
+        </h2>
+        
+        <!-- Weekly Task Metrics -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
+            <div class="flex items-center justify-between mb-4">
+              <div class="bg-white/20 rounded-lg p-3">
+                <i class="fas fa-plus-circle text-2xl"></i>
+              </div>
             </div>
+            <div class="text-3xl font-bold mb-1">${tasksThisWeek.length}</div>
+            <div class="text-blue-100 text-sm">Tasks Created</div>
           </div>
-          <div class="text-3xl font-bold mb-1">${totalReports}</div>
-          <div class="text-blue-100 text-sm">Total Reports</div>
+          
+          <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
+            <div class="flex items-center justify-between mb-4">
+              <div class="bg-white/20 rounded-lg p-3">
+                <i class="fas fa-check-circle text-2xl"></i>
+              </div>
+            </div>
+            <div class="text-3xl font-bold mb-1">${tasksCompletedThisWeek.length}</div>
+            <div class="text-green-100 text-sm">Tasks Completed</div>
+          </div>
+          
+          <div class="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-6 text-white">
+            <div class="flex items-center justify-between mb-4">
+              <div class="bg-white/20 rounded-lg p-3">
+                <i class="fas fa-exclamation-triangle text-2xl"></i>
+              </div>
+            </div>
+            <div class="text-3xl font-bold mb-1">${tasksOverdueThisWeek.length}</div>
+            <div class="text-red-100 text-sm">Tasks Overdue</div>
+          </div>
+          
+          <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+            <div class="flex items-center justify-between mb-4">
+              <div class="bg-white/20 rounded-lg p-3">
+                <i class="fas fa-percent text-2xl"></i>
+              </div>
+            </div>
+            <div class="text-3xl font-bold mb-1">${tasksThisWeek.length > 0 ? Math.round((tasksCompletedThisWeek.length / tasksThisWeek.length) * 100) : 0}%</div>
+            <div class="text-purple-100 text-sm">Completion Rate</div>
+          </div>
         </div>
         
-        <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
-          <div class="flex items-center justify-between mb-4">
-            <div class="bg-white/20 rounded-lg p-3">
-              <i class="fas fa-calendar-check text-2xl"></i>
+        <!-- Weekly Risk Metrics -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div class="bg-white rounded-xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div class="text-orange-600">
+                <i class="fas fa-shield-alt text-3xl"></i>
+              </div>
+              <div class="text-right">
+                <div class="text-2xl font-bold text-gray-900">${risksThisWeek.length}</div>
+                <div class="text-sm text-gray-500">Risks Raised</div>
+              </div>
             </div>
           </div>
-          <div class="text-3xl font-bold mb-1">${reportsThisMonth}</div>
-          <div class="text-green-100 text-sm">This Month</div>
-        </div>
-        
-        <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
-          <div class="flex items-center justify-between mb-4">
-            <div class="bg-white/20 rounded-lg p-3">
-              <i class="fas fa-folder-open text-2xl"></i>
+          
+          <div class="bg-white rounded-xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div class="text-green-600">
+                <i class="fas fa-check-double text-3xl"></i>
+              </div>
+              <div class="text-right">
+                <div class="text-2xl font-bold text-gray-900">${risksResolvedThisWeek.length}</div>
+                <div class="text-sm text-gray-500">Risks Resolved</div>
+              </div>
             </div>
           </div>
-          <div class="text-3xl font-bold mb-1">${activeProjects}</div>
-          <div class="text-purple-100 text-sm">Active Projects</div>
-        </div>
-        
-        <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl shadow-lg p-6 text-white">
-          <div class="flex items-center justify-between mb-4">
-            <div class="bg-white/20 rounded-lg p-3">
-              <i class="fas fa-chart-line text-2xl"></i>
+          
+          <div class="bg-white rounded-xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div class="text-blue-600">
+                <i class="fas fa-file-alt text-3xl"></i>
+              </div>
+              <div class="text-right">
+                <div class="text-2xl font-bold text-gray-900">${contactReportsThisWeek.length}</div>
+                <div class="text-sm text-gray-500">Contact Reports</div>
+              </div>
             </div>
           </div>
-          <div class="text-3xl font-bold mb-1">${Math.round(reportsThisMonth / (activeProjects || 1) * 10) / 10}</div>
-          <div class="text-orange-100 text-sm">Avg Reports/Project</div>
         </div>
       </div>
       
-      <!-- Contact Reports by Project -->
+      <!-- Monthly Report Section -->
+      <div id="report-month" class="report-section hidden">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">
+          <i class="fas fa-calendar-alt mr-2"></i>Monthly Summary
+        </h2>
+        
+        <!-- Monthly Task Metrics -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
+            <div class="flex items-center justify-between mb-4">
+              <div class="bg-white/20 rounded-lg p-3">
+                <i class="fas fa-plus-circle text-2xl"></i>
+              </div>
+            </div>
+            <div class="text-3xl font-bold mb-1">${tasksThisMonth.length}</div>
+            <div class="text-blue-100 text-sm">Tasks Assigned</div>
+          </div>
+          
+          <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
+            <div class="flex items-center justify-between mb-4">
+              <div class="bg-white/20 rounded-lg p-3">
+                <i class="fas fa-check-circle text-2xl"></i>
+              </div>
+            </div>
+            <div class="text-3xl font-bold mb-1">${tasksCompletedThisMonth.length}</div>
+            <div class="text-green-100 text-sm">Tasks Completed</div>
+          </div>
+          
+          <div class="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-6 text-white">
+            <div class="flex items-center justify-between mb-4">
+              <div class="bg-white/20 rounded-lg p-3">
+                <i class="fas fa-clock text-2xl"></i>
+              </div>
+            </div>
+            <div class="text-3xl font-bold mb-1">${analytics.overdue_tasks}</div>
+            <div class="text-red-100 text-sm">Currently Overdue</div>
+          </div>
+          
+          <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+            <div class="flex items-center justify-between mb-4">
+              <div class="bg-white/20 rounded-lg p-3">
+                <i class="fas fa-percent text-2xl"></i>
+              </div>
+            </div>
+            <div class="text-3xl font-bold mb-1">${tasksThisMonth.length > 0 ? Math.round((tasksCompletedThisMonth.length / tasksThisMonth.length) * 100) : 0}%</div>
+            <div class="text-purple-100 text-sm">Completion Rate</div>
+          </div>
+        </div>
+        
+        <!-- Monthly Risk & Report Metrics -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div class="bg-white rounded-xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div class="text-orange-600">
+                <i class="fas fa-shield-alt text-3xl"></i>
+              </div>
+              <div class="text-right">
+                <div class="text-2xl font-bold text-gray-900">${risksThisMonth.length}</div>
+                <div class="text-sm text-gray-500">Risks Raised</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div class="text-green-600">
+                <i class="fas fa-check-double text-3xl"></i>
+              </div>
+              <div class="text-right">
+                <div class="text-2xl font-bold text-gray-900">${risksResolvedThisMonth.length}</div>
+                <div class="text-sm text-gray-500">Risks Resolved</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div class="text-red-600">
+                <i class="fas fa-exclamation-circle text-3xl"></i>
+              </div>
+              <div class="text-right">
+                <div class="text-2xl font-bold text-gray-900">${openRisks.length}</div>
+                <div class="text-sm text-gray-500">Open Risks</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div class="text-blue-600">
+                <i class="fas fa-file-alt text-3xl"></i>
+              </div>
+              <div class="text-right">
+                <div class="text-2xl font-bold text-gray-900">${contactReportsThisMonth.length}</div>
+                <div class="text-sm text-gray-500">Contact Reports</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Month Comparison Section -->
+      <div id="report-comparison" class="report-section hidden">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">
+          <i class="fas fa-exchange-alt mr-2"></i>Month-over-Month Comparison
+        </h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Task Comparison -->
+          <div class="bg-white rounded-xl shadow-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Task Performance</h3>
+            <div class="space-y-4">
+              <div class="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
+                <div>
+                  <div class="text-sm text-gray-600">Tasks Assigned</div>
+                  <div class="flex items-center space-x-3 mt-1">
+                    <span class="text-xl font-bold text-gray-900">${tasksThisMonth.length}</span>
+                    <span class="text-sm text-gray-500">vs ${tasksLastMonth.length} last month</span>
+                  </div>
+                </div>
+                <div class="text-${tasksThisMonth.length >= tasksLastMonth.length ? 'green' : 'red'}-600">
+                  <i class="fas fa-arrow-${tasksThisMonth.length >= tasksLastMonth.length ? 'up' : 'down'} text-2xl"></i>
+                </div>
+              </div>
+              
+              <div class="flex items-center justify-between p-4 bg-green-50 rounded-lg">
+                <div>
+                  <div class="text-sm text-gray-600">Tasks Completed</div>
+                  <div class="flex items-center space-x-3 mt-1">
+                    <span class="text-xl font-bold text-gray-900">${tasksCompletedThisMonth.length}</span>
+                    <span class="text-sm text-gray-500">vs ${tasksCompletedLastMonth.length} last month</span>
+                  </div>
+                </div>
+                <div class="text-${tasksCompletedThisMonth.length >= tasksCompletedLastMonth.length ? 'green' : 'red'}-600">
+                  <i class="fas fa-arrow-${tasksCompletedThisMonth.length >= tasksCompletedLastMonth.length ? 'up' : 'down'} text-2xl"></i>
+                </div>
+              </div>
+              
+              <div class="flex items-center justify-between p-4 bg-purple-50 rounded-lg">
+                <div>
+                  <div class="text-sm text-gray-600">Completion Rate</div>
+                  <div class="flex items-center space-x-3 mt-1">
+                    <span class="text-xl font-bold text-gray-900">${tasksThisMonth.length > 0 ? Math.round((tasksCompletedThisMonth.length / tasksThisMonth.length) * 100) : 0}%</span>
+                    <span class="text-sm text-gray-500">vs ${tasksLastMonth.length > 0 ? Math.round((tasksCompletedLastMonth.length / tasksLastMonth.length) * 100) : 0}% last month</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Project Health -->
+          <div class="bg-white rounded-xl shadow-lg p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Project Health</h3>
+            <div class="space-y-4">
+              <div class="flex items-center justify-between p-4 bg-indigo-50 rounded-lg">
+                <div>
+                  <div class="text-sm text-gray-600">Active Projects</div>
+                  <div class="text-xl font-bold text-gray-900 mt-1">${activeProjects}</div>
+                </div>
+                <i class="fas fa-folder-open text-indigo-600 text-2xl"></i>
+              </div>
+              
+              <div class="flex items-center justify-between p-4 bg-yellow-50 rounded-lg">
+                <div>
+                  <div class="text-sm text-gray-600">Projects with Overdue Tasks</div>
+                  <div class="text-xl font-bold text-gray-900 mt-1">${projectsWithOverdue}</div>
+                </div>
+                <i class="fas fa-clock text-yellow-600 text-2xl"></i>
+              </div>
+              
+              <div class="flex items-center justify-between p-4 bg-orange-50 rounded-lg">
+                <div>
+                  <div class="text-sm text-gray-600">Projects with Open Risks</div>
+                  <div class="text-xl font-bold text-gray-900 mt-1">${projectsWithRisks}</div>
+                </div>
+                <i class="fas fa-exclamation-triangle text-orange-600 text-2xl"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Contact Reports Summary -->
       <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-        <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-blue-50">
+        <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-teal-50 to-cyan-50">
           <h2 class="text-xl font-semibold text-gray-900">
-            <i class="fas fa-address-book mr-2 text-indigo-600"></i>Contact Reports
+            <i class="fas fa-address-book mr-2 text-teal-600"></i>Client Contact Reports Summary
           </h2>
         </div>
         <div class="p-6">
-          ${projects.projects.filter(p => reportsByProject[p.id]).length === 0 ? 
-            '<p class="text-gray-500 text-center py-8">No contact reports yet. Create your first report above.</p>' :
-            `<div class="space-y-6">
-              ${projects.projects
-                .filter(p => reportsByProject[p.id])
-                .map(project => `
-                  <div class="border rounded-lg overflow-hidden">
-                    <!-- Project Header -->
-                    <div class="bg-gray-50 px-4 py-3 border-b">
-                      <div class="flex items-center justify-between">
-                        <div class="flex items-center space-x-3">
-                          <i class="fas fa-folder text-blue-600"></i>
-                          <span class="font-semibold text-gray-900">${project.name}</span>
-                          <span class="text-sm text-gray-500">(${reportsByProject[project.id].length} reports)</span>
-                        </div>
-                        <span class="text-xs px-2 py-1 rounded ${project.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
-                          ${project.status}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <!-- Reports List -->
-                    <div class="divide-y divide-gray-200">
-                      ${reportsByProject[project.id].slice(0, 3).map(report => `
-                        <div class="p-4 hover:bg-gray-50 transition-colors">
-                          <div class="flex items-start justify-between">
-                            <div class="flex-1">
-                              <div class="flex items-center space-x-3 mb-2">
-                                <i class="fas fa-calendar-alt text-gray-400 text-sm"></i>
-                                <span class="text-sm font-medium text-gray-900">${formatDate(report.meeting_date || report.created_at)}</span>
-                                <span class="text-xs text-gray-500">by ${report.created_by_name}</span>
-                              </div>
-                              <p class="text-sm text-gray-700 mb-2">${report.summary}</p>
-                              <div class="flex items-center space-x-4 text-xs text-gray-500">
-                                ${report.attendees.length > 0 ? `<span><i class="fas fa-users mr-1"></i>${report.attendees.length} attendees</span>` : ''}
-                                ${report.action_items.length > 0 ? `<span><i class="fas fa-tasks mr-1"></i>${report.action_items.length} action items</span>` : ''}
-                                ${report.sent_to.length > 0 ? `<span><i class="fas fa-envelope mr-1"></i>${report.sent_to.length} recipients</span>` : ''}
-                              </div>
-                            </div>
-                            <button onclick="viewReport(${report.id})" class="btn-secondary text-sm ml-4">
-                              <i class="fas fa-eye"></i>
-                            </button>
-                          </div>
-                        </div>
-                      `).join('')}
-                      ${reportsByProject[project.id].length > 3 ? `
-                        <div class="p-3 bg-gray-50 text-center">
-                          <button onclick="viewProjectReports(${project.id})" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
-                            View all ${reportsByProject[project.id].length} reports →
-                          </button>
-                        </div>
-                      ` : ''}
-                    </div>
-                  </div>
-                `).join('')}
-            </div>`
-          }
-        </div>
-      </div>
-      
-      <!-- Project Status Summary -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Recent Activity -->
-        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50">
-            <h2 class="text-xl font-semibold text-gray-900">
-              <i class="fas fa-clock mr-2 text-green-600"></i>Recent Reports
-            </h2>
-          </div>
-          <div class="p-6">
-            <div class="space-y-3">
-              ${contactReports.reports.slice(0, 5).map(report => `
-                <div class="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50">
-                  <div class="flex-shrink-0">
-                    <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                      <i class="fas fa-file-alt text-blue-600"></i>
-                    </div>
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-gray-900 truncate">${report.project_name}</p>
-                    <p class="text-xs text-gray-500">${formatDate(report.meeting_date || report.created_at)}</p>
-                  </div>
-                  <button onclick="viewReport(${report.id})" class="text-blue-600 hover:text-blue-800">
-                    <i class="fas fa-chevron-right"></i>
-                  </button>
-                </div>
-              `).join('')}
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="text-center p-6 bg-blue-50 rounded-lg">
+              <div class="text-3xl font-bold text-blue-600 mb-2">${contactReports.reports.length}</div>
+              <div class="text-sm text-gray-600">Total Reports</div>
+            </div>
+            <div class="text-center p-6 bg-green-50 rounded-lg">
+              <div class="text-3xl font-bold text-green-600 mb-2">${contactReportsThisMonth.length}</div>
+              <div class="text-sm text-gray-600">This Month</div>
+            </div>
+            <div class="text-center p-6 bg-purple-50 rounded-lg">
+              <div class="text-3xl font-bold text-purple-600 mb-2">${contactReportsThisWeek.length}</div>
+              <div class="text-sm text-gray-600">This Week</div>
             </div>
           </div>
-        </div>
-        
-        <!-- Quick Stats -->
-        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-yellow-50 to-amber-50">
-            <h2 class="text-xl font-semibold text-gray-900">
-              <i class="fas fa-chart-bar mr-2 text-yellow-600"></i>Performance Overview
-            </h2>
-          </div>
-          <div class="p-6">
-            <div class="space-y-4">
-              <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                <div class="flex items-center space-x-3">
-                  <i class="fas fa-tasks text-blue-600"></i>
-                  <span class="text-sm font-medium text-gray-900">Tasks Due This Week</span>
-                </div>
-                <span class="text-lg font-bold text-blue-600">${analytics.tasks_due_this_week}</span>
-              </div>
-              
-              <div class="flex items-center justify-between p-3 bg-red-50 rounded-lg">
-                <div class="flex items-center space-x-3">
-                  <i class="fas fa-exclamation-triangle text-red-600"></i>
-                  <span class="text-sm font-medium text-gray-900">Overdue Tasks</span>
-                </div>
-                <span class="text-lg font-bold text-red-600">${analytics.overdue_tasks}</span>
-              </div>
-              
-              <div class="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
-                <div class="flex items-center space-x-3">
-                  <i class="fas fa-shield-alt text-orange-600"></i>
-                  <span class="text-sm font-medium text-gray-900">Open Risks</span>
-                </div>
-                <span class="text-lg font-bold text-orange-600">${analytics.open_risks}</span>
-              </div>
-              
-              <div class="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
-                <div class="flex items-center space-x-3">
-                  <i class="fas fa-hourglass-half text-purple-600"></i>
-                  <span class="text-sm font-medium text-gray-900">Pending Approvals</span>
-                </div>
-                <span class="text-lg font-bold text-purple-600">${analytics.pending_approvals}</span>
-              </div>
+          <div class="mt-6 text-center">
+            <p class="text-sm text-gray-600 mb-3">Recent contact reports logged by the team</p>
+            <div class="flex flex-wrap gap-2 justify-center">
+              ${contactReports.reports.slice(0, 5).map(report => `
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                  <i class="fas fa-file-alt mr-1"></i>${report.project_name}
+                </span>
+              `).join('')}
             </div>
           </div>
         </div>
       </div>
     </div>
   `;
+}
+
+function selectReportPeriod(period) {
+  // Hide all sections
+  document.querySelectorAll('.report-section').forEach(el => el.classList.add('hidden'));
+  
+  // Remove active class from all buttons
+  document.querySelectorAll('[id^="period-"]').forEach(btn => {
+    btn.classList.remove('bg-blue-600', 'text-white');
+    btn.classList.add('text-gray-600');
+  });
+  
+  // Show selected section and highlight button
+  document.getElementById('report-' + period).classList.remove('hidden');
+  const activeBtn = document.getElementById('period-' + period);
+  activeBtn.classList.add('bg-blue-600', 'text-white');
+  activeBtn.classList.remove('text-gray-600');
 }
 
 // ========== TEMPLATES VIEW ==========
