@@ -634,7 +634,9 @@ app.get('/api/escalations', async (c) => {
 
 // ========== ANALYTICS / KPI ROUTES ==========
 app.get('/api/analytics/overview', async (c) => {
-  const period = c.req.query('period') || strftime('%Y-%m', new Date());
+  const now = new Date();
+  const defaultPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const period = c.req.query('period') || defaultPeriod;
   
   // Get KPI counts by type for the period
   const { results: kpiCounts } = await c.env.DB.prepare(`
