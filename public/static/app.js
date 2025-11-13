@@ -75,6 +75,14 @@ function navigate(view) {
   renderApp();
 }
 
+function viewTask(taskId) {
+  navigate('tasks');
+}
+
+function viewApproval(approvalId) {
+  navigate('approvals');
+}
+
 function renderNavigation() {
   return `
     <nav class="bg-blue-900 text-white shadow-lg">
@@ -120,9 +128,13 @@ function renderNavigation() {
 
 // ========== DASHBOARD VIEW ==========
 async function renderDashboard() {
-  const [myTasks, analytics] = await Promise.all([
+  const [myTasks, analytics, allRisks, projectHealth, allTasks, approvals] = await Promise.all([
     apiCall(`/tasks?owner_id=${currentUser.id}`),
-    apiCall('/analytics/overview')
+    apiCall('/analytics/overview'),
+    apiCall('/risks'),
+    apiCall('/analytics/project-health'),
+    apiCall('/tasks'),
+    apiCall('/approvals/pending')
   ]);
   
   const tasksToday = myTasks.tasks.filter(t => 
@@ -132,6 +144,26 @@ async function renderDashboard() {
   const tasksDueWeek = myTasks.tasks.filter(t => 
     t.status !== 'completed' && t.status !== 'approved'
   );
+  
+  // Get high-risk projects and their tasks
+  const highRiskProjects = allRisks.risks
+    .filter(r => r.status === 'open' && r.impact === 'high')
+    .map(r => r.project_id);
+  const highRiskTasks = allTasks.tasks
+    .filter(t => highRiskProjects.includes(t.project_id) && t.status !== 'completed')
+    .sort((a, b) => {
+      const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
+      return (priorityOrder[a.priority] || 4) - (priorityOrder[b.priority] || 4);
+    })
+    .slice(0, 5);
+  
+  // Get projects needing attention (overdue tasks or high risks)
+  const projectsNeedingAttention = projectHealth.project_health
+    .filter(p => p.overdue_tasks > 0 || p.open_risks >= 2)
+    .slice(0, 5);
+  
+  // Get pending approvals (already filtered by API)
+  const urgentApprovals = approvals.approvals.slice(0, 5);
   
   return `
     <div class="space-y-6">
@@ -187,38 +219,147 @@ async function renderDashboard() {
         </div>
       </div>
       
-      <!-- My Tasks -->
-      <div class="bg-white rounded-lg shadow">
-        <div class="px-6 py-4 border-b border-gray-200">
-          <h2 class="text-xl font-semibold text-gray-900">
-            <i class="fas fa-list-check mr-2"></i>My Tasks
-          </h2>
-        </div>
-        <div class="p-6">
-          ${tasksDueWeek.length === 0 ? 
-            '<p class="text-gray-500 text-center py-8">No tasks assigned to you</p>' :
-            `<div class="space-y-3">
-              ${tasksDueWeek.map(task => `
-                <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-                  <div class="flex-1">
-                    <div class="flex items-center space-x-3">
-                      <h3 class="font-medium text-gray-900">${task.title}</h3>
-                      ${getStatusBadge(task.status)}
-                      ${getPriorityBadge(task.priority)}
+      <!-- Two Column Layout for Dashboard Widgets -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <!-- My Tasks -->
+        <div class="bg-white rounded-lg shadow">
+          <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-blue-100">
+            <h2 class="text-xl font-semibold text-gray-900">
+              <i class="fas fa-list-check mr-2 text-blue-600"></i>My Tasks
+            </h2>
+          </div>
+          <div class="p-6 max-h-96 overflow-y-auto">
+            ${tasksDueWeek.length === 0 ? 
+              '<p class="text-gray-500 text-center py-8">No tasks assigned to you</p>' :
+              `<div class="space-y-3">
+                ${tasksDueWeek.slice(0, 5).map(task => `
+                  <div class="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors">
+                    <div class="flex-1">
+                      <div class="flex items-center space-x-2">
+                        <h3 class="font-medium text-gray-900 text-sm">${task.title}</h3>
+                        ${getStatusBadge(task.status)}
+                        ${getPriorityBadge(task.priority)}
+                      </div>
+                      <div class="mt-1 text-xs text-gray-500">
+                        <i class="fas fa-folder mr-1"></i>${task.project_name}
+                        ${task.due_date ? `<span class="ml-3"><i class="fas fa-calendar mr-1"></i>${formatDate(task.due_date)}</span>` : ''}
+                      </div>
                     </div>
-                    <div class="mt-1 text-sm text-gray-500">
-                      <i class="fas fa-folder mr-1"></i>${task.project_name}
-                      ${task.due_date ? `<span class="ml-4"><i class="fas fa-calendar mr-1"></i>Due: ${formatDate(task.due_date)}</span>` : ''}
+                    <button onclick="viewTask(${task.id})" class="btn-secondary text-sm">
+                      <i class="fas fa-arrow-right"></i>
+                    </button>
+                  </div>
+                `).join('')}
+                ${tasksDueWeek.length > 5 ? `<div class="text-center pt-3"><button onclick="navigate('tasks')" class="text-blue-600 hover:text-blue-800 text-sm">View all ${tasksDueWeek.length} tasks →</button></div>` : ''}
+              </div>`
+            }
+          </div>
+        </div>
+        
+        <!-- High-Risk Tasks -->
+        <div class="bg-white rounded-lg shadow">
+          <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-red-50 to-orange-100">
+            <h2 class="text-xl font-semibold text-gray-900">
+              <i class="fas fa-exclamation-triangle mr-2 text-red-600"></i>High-Risk Tasks
+            </h2>
+          </div>
+          <div class="p-6 max-h-96 overflow-y-auto">
+            ${highRiskTasks.length === 0 ? 
+              '<p class="text-gray-500 text-center py-8"><i class="fas fa-check-circle text-green-500 text-2xl mb-2"></i><br/>No high-risk tasks</p>' :
+              `<div class="space-y-3">
+                ${highRiskTasks.map(task => `
+                  <div class="flex items-center justify-between p-3 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">
+                    <div class="flex-1">
+                      <div class="flex items-center space-x-2">
+                        <h3 class="font-medium text-gray-900 text-sm">${task.title}</h3>
+                        ${getStatusBadge(task.status)}
+                        ${getPriorityBadge(task.priority)}
+                      </div>
+                      <div class="mt-1 text-xs text-gray-500">
+                        <i class="fas fa-folder mr-1"></i>${task.project_name}
+                        <span class="ml-3 text-red-600"><i class="fas fa-shield-alt mr-1"></i>High Risk Project</span>
+                      </div>
+                    </div>
+                    <button onclick="viewTask(${task.id})" class="btn-secondary text-sm">
+                      <i class="fas fa-arrow-right"></i>
+                    </button>
+                  </div>
+                `).join('')}
+              </div>`
+            }
+          </div>
+        </div>
+        
+        <!-- Projects Needing Attention -->
+        <div class="bg-white rounded-lg shadow">
+          <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-yellow-50 to-amber-100">
+            <h2 class="text-xl font-semibold text-gray-900">
+              <i class="fas fa-flag mr-2 text-yellow-600"></i>Projects Needing Attention
+            </h2>
+          </div>
+          <div class="p-6 max-h-96 overflow-y-auto">
+            ${projectsNeedingAttention.length === 0 ? 
+              '<p class="text-gray-500 text-center py-8"><i class="fas fa-thumbs-up text-green-500 text-2xl mb-2"></i><br/>All projects on track</p>' :
+              `<div class="space-y-3">
+                ${projectsNeedingAttention.map(project => `
+                  <div class="p-3 border border-yellow-200 rounded-lg hover:bg-yellow-50 transition-colors">
+                    <div class="flex items-center justify-between mb-2">
+                      <h3 class="font-medium text-gray-900">${project.name}</h3>
+                      ${getStatusBadge(project.status)}
+                    </div>
+                    <div class="flex items-center space-x-4 text-xs text-gray-600">
+                      ${project.overdue_tasks > 0 ? `<span class="text-red-600"><i class="fas fa-clock mr-1"></i>${project.overdue_tasks} overdue</span>` : ''}
+                      ${project.open_risks > 0 ? `<span class="text-orange-600"><i class="fas fa-exclamation-triangle mr-1"></i>${project.open_risks} risks</span>` : ''}
+                      <span><i class="fas fa-tasks mr-1"></i>${project.completed_tasks}/${project.total_tasks} done</span>
+                    </div>
+                    <div class="mt-2">
+                      <button onclick="navigate('projects', ${project.id})" class="text-blue-600 hover:text-blue-800 text-xs">
+                        View project →
+                      </button>
                     </div>
                   </div>
-                  <button onclick="viewTask(${task.id})" class="btn-secondary">
-                    <i class="fas fa-arrow-right"></i>
-                  </button>
-                </div>
-              `).join('')}
-            </div>`
-          }
+                `).join('')}
+              </div>`
+            }
+          </div>
         </div>
+        
+        <!-- Pending Approvals -->
+        <div class="bg-white rounded-lg shadow">
+          <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-indigo-100">
+            <h2 class="text-xl font-semibold text-gray-900">
+              <i class="fas fa-hourglass-half mr-2 text-purple-600"></i>Pending Approvals
+            </h2>
+          </div>
+          <div class="p-6 max-h-96 overflow-y-auto">
+            ${urgentApprovals.length === 0 ? 
+              '<p class="text-gray-500 text-center py-8"><i class="fas fa-check-double text-green-500 text-2xl mb-2"></i><br/>No pending approvals</p>' :
+              `<div class="space-y-3">
+                ${urgentApprovals.map(approval => `
+                  <div class="p-3 border border-purple-200 rounded-lg hover:bg-purple-50 transition-colors">
+                    <div class="flex items-center justify-between mb-2">
+                      <h3 class="font-medium text-gray-900 text-sm">${approval.task_title}</h3>
+                      <span class="text-xs px-2 py-1 rounded ${approval.peer_status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}">
+                        ${approval.peer_status === 'pending' ? 'Peer Review' : 'Senior Approval'}
+                      </span>
+                    </div>
+                    <div class="text-xs text-gray-500">
+                      <i class="fas fa-folder mr-1"></i>${approval.project_name}
+                      ${approval.peer_status === 'pending' ? `<span class="ml-3"><i class="fas fa-user-check mr-1"></i>Reviewer: ${approval.peer_reviewer_name}</span>` : `<span class="ml-3"><i class="fas fa-user-tie mr-1"></i>Approver: ${approval.senior_approver_name}</span>`}
+                    </div>
+                    <div class="mt-2 flex items-center space-x-2">
+                      <button onclick="viewApproval(${approval.id})" class="text-blue-600 hover:text-blue-800 text-xs">
+                        Review →
+                      </button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>`
+            }
+          </div>
+        </div>
+        
       </div>
     </div>
   `;
