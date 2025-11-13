@@ -2,7 +2,7 @@
 
 -- Insert test users
 INSERT OR IGNORE INTO users (id, email, name, role) VALUES 
-  (1, 'ceo@acg.com', 'CEO Admin', 'admin'),
+  (1, 'ceo@acg.com', 'Admin Login', 'admin'),
   (2, 'gm@acg.com', 'General Manager', 'admin'),
   (3, 'lead@acg.com', 'Account Lead', 'account_lead'),
   (4, 'projectlead@acg.com', 'Project Lead', 'project_lead'),

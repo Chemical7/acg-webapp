@@ -14,7 +14,7 @@ const API_BASE = 'http://localhost:3000/api';
 async function apiCall(endpoint, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
-    'X-User-Id': '1', // CEO Admin
+    'X-User-Id': '1', // Admin Login
     ...options.headers
   };
   

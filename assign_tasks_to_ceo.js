@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Assign tasks and approvals to CEO Admin (User 1)
+ * Assign tasks and approvals to Admin Login (User 1)
  * This makes the dashboard more useful when logged in as the default user
  */
 
@@ -32,7 +32,7 @@ function randomChoice(array) {
 }
 
 async function assignTasksToCEO() {
-  console.log('🚀 Assigning tasks and approvals to CEO Admin...\n');
+  console.log('🚀 Assigning tasks and approvals to Admin Login...\n');
   
   try {
     const { tasks } = await apiCall('/tasks');
@@ -44,7 +44,7 @@ async function assignTasksToCEO() {
       .sort(() => Math.random() - 0.5)
       .slice(0, 15);
     
-    console.log(`📝 Assigning ${tasksToReassign.length} tasks to CEO Admin...\n`);
+    console.log(`📝 Assigning ${tasksToReassign.length} tasks to Admin Login...\n`);
     
     let assigned = 0;
     for (const task of tasksToReassign) {
@@ -62,7 +62,7 @@ async function assignTasksToCEO() {
       }
     }
     
-    console.log(`\n  ✅ Assigned ${assigned} tasks to CEO Admin\n`);
+    console.log(`\n  ✅ Assigned ${assigned} tasks to Admin Login\n`);
     
     // Update some existing approvals to use CEO as reviewer/approver
     console.log('✅ Adding CEO as reviewer/approver...\n');
@@ -136,7 +136,7 @@ async function assignTasksToCEO() {
     console.log(`✅ Approvals (CEO as Peer): ${peerApprovalCount}`);
     console.log('═══════════════════════════════════════\n');
     
-    console.log('✨ Dashboard should now show data for CEO Admin!');
+    console.log('✨ Dashboard should now show data for Admin Login!');
     
   } catch (error) {
     console.error('❌ Error:', error.message);
