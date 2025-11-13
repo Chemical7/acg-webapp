@@ -105,7 +105,7 @@ function renderNavigation() {
           </div>
           <div class="flex items-center space-x-4">
             <button onclick="toggleAssistant()" class="nav-btn">
-              <i class="fas fa-robot mr-2"></i>Ask Process
+              <i class="fas fa-sparkles mr-2"></i>ACGPT
             </button>
             <div class="flex items-center space-x-2">
               <i class="fas fa-user-circle text-2xl"></i>
@@ -1055,10 +1055,10 @@ function renderAssistant() {
   }
   
   assistant.innerHTML = `
-    <div class="bg-blue-900 text-white p-4 flex items-center justify-between">
+    <div class="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 flex items-center justify-between">
       <div class="flex items-center space-x-2">
-        <i class="fas fa-robot text-2xl"></i>
-        <span class="font-bold">Ask the Process</span>
+        <i class="fas fa-sparkles text-2xl"></i>
+        <span class="font-bold text-lg">ACGPT</span>
       </div>
       <button onclick="toggleAssistant()" class="text-white hover:text-gray-200">
         <i class="fas fa-times"></i>
@@ -1066,10 +1066,13 @@ function renderAssistant() {
     </div>
     
     <div id="assistant-messages" class="flex-1 overflow-y-auto p-4 space-y-4">
-      <div class="bg-blue-50 rounded-lg p-3">
-        <p class="text-sm text-blue-900">
-          <i class="fas fa-info-circle mr-2"></i>
-          I can help you with ACG processes, templates, and guidelines. Try asking about brand guidelines, QA procedures, or reporting requirements.
+      <div class="bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg p-4 border border-purple-200">
+        <p class="text-sm text-gray-800 font-medium mb-2">
+          <i class="fas fa-sparkles mr-2 text-purple-600"></i>
+          Hi! I'm ACGPT ✨
+        </p>
+        <p class="text-xs text-gray-600">
+          Your AI assistant for ACG processes, templates, and guidelines. Ask me about brand guidelines, QA procedures, or reporting requirements.
         </p>
       </div>
     </div>
@@ -1078,7 +1081,7 @@ function renderAssistant() {
       <div class="flex space-x-2">
         <input type="text" 
                name="question" 
-               placeholder="Ask about ACG processes..." 
+               placeholder="Ask ACGPT anything..." 
                class="input flex-1"
                required>
         <button type="submit" class="btn-primary">
