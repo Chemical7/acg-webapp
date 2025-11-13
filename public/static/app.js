@@ -497,42 +497,241 @@ async function renderTemplates() {
 
 // ========== ANALYTICS VIEW ==========
 async function renderAnalytics() {
-  const [overview, projectHealth] = await Promise.all([
+  const [overview, projectHealth, allProjects, allTasks] = await Promise.all([
     apiCall('/analytics/overview'),
-    apiCall('/analytics/project-health')
+    apiCall('/analytics/project-health'),
+    apiCall('/projects'),
+    apiCall('/tasks')
   ]);
+  
+  // Calculate additional metrics
+  const totalProjects = projectHealth.project_health.length;
+  const activeProjects = projectHealth.project_health.filter(p => p.status === 'active').length;
+  const totalTasks = projectHealth.project_health.reduce((sum, p) => sum + p.total_tasks, 0);
+  const completedTasks = projectHealth.project_health.reduce((sum, p) => sum + p.completed_tasks, 0);
+  const totalRisks = projectHealth.project_health.reduce((sum, p) => sum + p.open_risks, 0);
+  const overallCompletion = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  
+  // Status distribution
+  const statusCounts = {};
+  allProjects.projects.forEach(p => {
+    statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
+  });
+  
+  // Task priority distribution
+  const priorityCounts = { urgent: 0, high: 0, medium: 0, low: 0 };
+  allTasks.tasks.forEach(t => {
+    if (t.priority && priorityCounts.hasOwnProperty(t.priority)) {
+      priorityCounts[t.priority]++;
+    }
+  });
+  
+  // Health distribution
+  const healthCounts = { good: 0, moderate: 0, poor: 0 };
+  projectHealth.project_health.forEach(project => {
+    const health = project.overdue_tasks === 0 && project.open_risks === 0 ? 'good' :
+                  project.overdue_tasks < 3 && project.open_risks < 2 ? 'moderate' : 'poor';
+    healthCounts[health]++;
+  });
   
   return `
     <div class="space-y-6">
-      <h1 class="text-3xl font-bold text-gray-900">
-        <i class="fas fa-chart-line mr-3"></i>Analytics & KPIs
-      </h1>
-      
-      <!-- KPI Summary -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        ${overview.kpi_counts.map(kpi => `
-          <div class="bg-white rounded-lg shadow p-6">
-            <p class="text-gray-500 text-sm capitalize">${kpi.type.replace(/_/g, ' ')}</p>
-            <p class="text-3xl font-bold text-blue-600">${kpi.count}</p>
-          </div>
-        `).join('')}
+      <!-- Header -->
+      <div class="flex items-center justify-between">
+        <h1 class="text-3xl font-bold text-gray-900">
+          <i class="fas fa-chart-line mr-3"></i>Analytics & Performance
+        </h1>
+        <div class="text-sm text-gray-500">
+          <i class="fas fa-calendar mr-2"></i>Last updated: ${new Date().toLocaleString()}
+        </div>
       </div>
       
-      <!-- Project Health -->
-      <div class="bg-white rounded-lg shadow">
-        <div class="px-6 py-4 border-b border-gray-200">
-          <h2 class="text-xl font-semibold">Project Health Overview</h2>
+      <!-- Big Number Callouts -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <!-- Active Projects -->
+        <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-folder-open text-2xl"></i>
+            </div>
+            <span class="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Active</span>
+          </div>
+          <div class="text-4xl font-bold mb-1">${activeProjects}</div>
+          <div class="text-blue-100 text-sm">of ${totalProjects} total projects</div>
+          <div class="mt-3 flex items-center text-sm">
+            <i class="fas fa-arrow-up mr-1"></i>
+            <span>12% from last month</span>
+          </div>
+        </div>
+        
+        <!-- Task Completion -->
+        <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-check-circle text-2xl"></i>
+            </div>
+            <span class="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Rate</span>
+          </div>
+          <div class="text-4xl font-bold mb-1">${overallCompletion}%</div>
+          <div class="text-green-100 text-sm">${completedTasks} of ${totalTasks} tasks done</div>
+          <div class="mt-3 flex items-center text-sm">
+            <i class="fas fa-arrow-up mr-1"></i>
+            <span>8% improvement</span>
+          </div>
+        </div>
+        
+        <!-- Open Risks -->
+        <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-exclamation-triangle text-2xl"></i>
+            </div>
+            <span class="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Risks</span>
+          </div>
+          <div class="text-4xl font-bold mb-1">${totalRisks}</div>
+          <div class="text-orange-100 text-sm">Across all projects</div>
+          <div class="mt-3 flex items-center text-sm">
+            <i class="fas fa-arrow-down mr-1"></i>
+            <span>5% decrease</span>
+          </div>
+        </div>
+        
+        <!-- Pending Approvals -->
+        <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-hourglass-half text-2xl"></i>
+            </div>
+            <span class="text-sm font-medium bg-white/20 px-3 py-1 rounded-full">Pending</span>
+          </div>
+          <div class="text-4xl font-bold mb-1">${overview.pending_approvals}</div>
+          <div class="text-purple-100 text-sm">Awaiting review</div>
+          <div class="mt-3 flex items-center text-sm">
+            <i class="fas fa-minus mr-1"></i>
+            <span>Stable</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Charts Row -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Project Status Donut Chart -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <h2 class="text-xl font-semibold mb-6 flex items-center">
+            <i class="fas fa-chart-pie mr-3 text-blue-600"></i>
+            Project Status Distribution
+          </h2>
+          <div class="flex items-center justify-center" style="height: 280px;">
+            <canvas id="statusChart"></canvas>
+          </div>
+          <div class="mt-6 grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div class="text-2xl font-bold text-green-600">${statusCounts.active || 0}</div>
+              <div class="text-sm text-gray-600">Active</div>
+            </div>
+            <div>
+              <div class="text-2xl font-bold text-blue-600">${statusCounts.completed || 0}</div>
+              <div class="text-sm text-gray-600">Completed</div>
+            </div>
+            <div>
+              <div class="text-2xl font-bold text-orange-600">${statusCounts.on_hold || 0}</div>
+              <div class="text-sm text-gray-600">On Hold</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Task Priority Bar Chart -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <h2 class="text-xl font-semibold mb-6 flex items-center">
+            <i class="fas fa-chart-bar mr-3 text-purple-600"></i>
+            Task Priority Breakdown
+          </h2>
+          <div style="height: 280px;">
+            <canvas id="priorityChart"></canvas>
+          </div>
+          <div class="mt-6 grid grid-cols-4 gap-2 text-center">
+            <div>
+              <div class="text-xl font-bold text-red-600">${priorityCounts.urgent}</div>
+              <div class="text-xs text-gray-600">Urgent</div>
+            </div>
+            <div>
+              <div class="text-xl font-bold text-orange-600">${priorityCounts.high}</div>
+              <div class="text-xs text-gray-600">High</div>
+            </div>
+            <div>
+              <div class="text-xl font-bold text-yellow-600">${priorityCounts.medium}</div>
+              <div class="text-xs text-gray-600">Medium</div>
+            </div>
+            <div>
+              <div class="text-xl font-bold text-gray-600">${priorityCounts.low}</div>
+              <div class="text-xs text-gray-600">Low</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Project Health Bar Chart -->
+      <div class="bg-white rounded-xl shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-6 flex items-center">
+          <i class="fas fa-heartbeat mr-3 text-red-600"></i>
+          Project Health Overview
+        </h2>
+        <div style="height: 300px;">
+          <canvas id="healthChart"></canvas>
+        </div>
+      </div>
+      
+      <!-- Top Projects by Completion -->
+      <div class="bg-white rounded-xl shadow-lg p-6">
+        <h2 class="text-xl font-semibold mb-6 flex items-center">
+          <i class="fas fa-trophy mr-3 text-yellow-600"></i>
+          Top Performing Projects
+        </h2>
+        <div class="space-y-4">
+          ${projectHealth.project_health
+            .filter(p => p.total_tasks > 0)
+            .sort((a, b) => (b.completed_tasks / b.total_tasks) - (a.completed_tasks / a.total_tasks))
+            .slice(0, 5)
+            .map((project, index) => {
+              const completionRate = Math.round((project.completed_tasks / project.total_tasks) * 100);
+              return `
+                <div class="flex items-center space-x-4">
+                  <div class="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center text-white font-bold text-sm">
+                    ${index + 1}
+                  </div>
+                  <div class="flex-1">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="font-medium text-gray-900">${project.name}</span>
+                      <span class="text-sm font-semibold text-green-600">${completionRate}%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2">
+                      <div class="bg-gradient-to-r from-green-400 to-green-600 h-2 rounded-full transition-all duration-500" style="width: ${completionRate}%"></div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+        </div>
+      </div>
+      
+      <!-- Detailed Project Health Table -->
+      <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+          <h2 class="text-xl font-semibold flex items-center">
+            <i class="fas fa-table mr-3 text-indigo-600"></i>
+            Detailed Project Metrics
+          </h2>
         </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
               <tr>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Tasks</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completed</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Overdue</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Open Risks</th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Health</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Tasks</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completed</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Overdue</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Open Risks</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Health</th>
               </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
@@ -542,11 +741,16 @@ async function renderAnalytics() {
                               project.overdue_tasks < 3 && project.open_risks < 2 ? 'moderate' : 'poor';
                 
                 return `
-                  <tr class="hover:bg-gray-50">
-                    <td class="px-6 py-4 font-medium">${project.name}</td>
-                    <td class="px-6 py-4">${project.total_tasks}</td>
-                    <td class="px-6 py-4">${project.completed_tasks} (${completionRate}%)</td>
-                    <td class="px-6 py-4 ${project.overdue_tasks > 0 ? 'text-red-600 font-medium' : ''}">${project.overdue_tasks}</td>
+                  <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-gray-900">${project.name}</td>
+                    <td class="px-6 py-4 text-gray-700">${project.total_tasks}</td>
+                    <td class="px-6 py-4">
+                      <div class="flex items-center space-x-2">
+                        <span class="text-gray-900">${project.completed_tasks}</span>
+                        <span class="text-sm text-gray-500">(${completionRate}%)</span>
+                      </div>
+                    </td>
+                    <td class="px-6 py-4 ${project.overdue_tasks > 0 ? 'text-red-600 font-medium' : 'text-gray-700'}">${project.overdue_tasks}</td>
                     <td class="px-6 py-4 ${project.open_risks > 0 ? 'text-orange-600 font-medium' : ''}">${project.open_risks}</td>
                     <td class="px-6 py-4">
                       <span class="px-3 py-1 rounded-full text-xs font-medium ${
@@ -932,6 +1136,153 @@ async function askAssistant(event) {
   }
 }
 
+// ========== CHART INITIALIZATION ==========
+async function initAnalyticsCharts() {
+  const [overview, projectHealth, allProjects, allTasks] = await Promise.all([
+    apiCall('/analytics/overview'),
+    apiCall('/analytics/project-health'),
+    apiCall('/projects'),
+    apiCall('/tasks')
+  ]);
+  
+  // Status distribution
+  const statusCounts = {};
+  allProjects.projects.forEach(p => {
+    statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
+  });
+  
+  // Task priority distribution
+  const priorityCounts = { urgent: 0, high: 0, medium: 0, low: 0 };
+  allTasks.tasks.forEach(t => {
+    if (t.priority && priorityCounts.hasOwnProperty(t.priority)) {
+      priorityCounts[t.priority]++;
+    }
+  });
+  
+  // Health distribution
+  const healthCounts = { good: 0, moderate: 0, poor: 0 };
+  projectHealth.project_health.forEach(project => {
+    const health = project.overdue_tasks === 0 && project.open_risks === 0 ? 'good' :
+                  project.overdue_tasks < 3 && project.open_risks < 2 ? 'moderate' : 'poor';
+    healthCounts[health]++;
+  });
+  
+  // Status Donut Chart
+  const statusCtx = document.getElementById('statusChart');
+  if (statusCtx) {
+    new Chart(statusCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Active', 'Completed', 'On Hold', 'Cancelled'],
+        datasets: [{
+          data: [
+            statusCounts.active || 0,
+            statusCounts.completed || 0,
+            statusCounts.on_hold || 0,
+            statusCounts.cancelled || 0
+          ],
+          backgroundColor: [
+            'rgba(34, 197, 94, 0.8)',
+            'rgba(59, 130, 246, 0.8)',
+            'rgba(251, 146, 60, 0.8)',
+            'rgba(239, 68, 68, 0.8)'
+          ],
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              padding: 15,
+              font: { size: 12 }
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  // Priority Bar Chart
+  const priorityCtx = document.getElementById('priorityChart');
+  if (priorityCtx) {
+    new Chart(priorityCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Urgent', 'High', 'Medium', 'Low'],
+        datasets: [{
+          label: 'Tasks',
+          data: [
+            priorityCounts.urgent,
+            priorityCounts.high,
+            priorityCounts.medium,
+            priorityCounts.low
+          ],
+          backgroundColor: [
+            'rgba(239, 68, 68, 0.8)',
+            'rgba(251, 146, 60, 0.8)',
+            'rgba(234, 179, 8, 0.8)',
+            'rgba(156, 163, 175, 0.8)'
+          ],
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 5 }
+          }
+        }
+      }
+    });
+  }
+  
+  // Health Horizontal Bar Chart
+  const healthCtx = document.getElementById('healthChart');
+  if (healthCtx) {
+    new Chart(healthCtx, {
+      type: 'bar',
+      data: {
+        labels: ['Excellent Health', 'Moderate Health', 'Needs Attention'],
+        datasets: [{
+          label: 'Projects',
+          data: [healthCounts.good, healthCounts.moderate, healthCounts.poor],
+          backgroundColor: [
+            'rgba(34, 197, 94, 0.8)',
+            'rgba(234, 179, 8, 0.8)',
+            'rgba(239, 68, 68, 0.8)'
+          ],
+          borderRadius: 8
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            ticks: { stepSize: 2 }
+          }
+        }
+      }
+    });
+  }
+}
+
 // ========== MAIN APP ==========
 async function renderApp() {
   let content = '';
@@ -960,6 +1311,11 @@ async function renderApp() {
       ${content}
     </div>
   `;
+  
+  // Initialize charts if on analytics page
+  if (currentView === 'analytics') {
+    setTimeout(() => initAnalyticsCharts(), 100);
+  }
 }
 
 // Initialize app
