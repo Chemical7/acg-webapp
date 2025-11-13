@@ -10,7 +10,7 @@
     {
       "binding": "DB",
       "database_name": "acg-webapp-production",
-      "database_id": "local-dev-db"
+      "database_id": "a8f40700-9bf3-4192-8351-1d58f734a0e2"
     }
   ]
 }
