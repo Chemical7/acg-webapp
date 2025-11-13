@@ -677,16 +677,39 @@ async function renderReports() {
       </div>
       
       <!-- Period Selector Tabs -->
-      <div class="bg-white rounded-lg shadow p-1 inline-flex">
-        <button onclick="selectReportPeriod('week')" id="period-week" class="px-4 py-2 rounded text-sm font-medium bg-blue-600 text-white">
-          This Week
-        </button>
-        <button onclick="selectReportPeriod('month')" id="period-month" class="px-4 py-2 rounded text-sm font-medium text-gray-600 hover:bg-gray-100">
-          This Month
-        </button>
-        <button onclick="selectReportPeriod('comparison')" id="period-comparison" class="px-4 py-2 rounded text-sm font-medium text-gray-600 hover:bg-gray-100">
-          Month Comparison
-        </button>
+      <div class="flex items-center space-x-4">
+        <div class="bg-white rounded-lg shadow p-1 inline-flex">
+          <button onclick="selectReportPeriod('week')" id="period-week" class="px-4 py-2 rounded text-sm font-medium bg-blue-600 text-white">
+            This Week
+          </button>
+          <button onclick="selectReportPeriod('month')" id="period-month" class="px-4 py-2 rounded text-sm font-medium text-gray-600 hover:bg-gray-100">
+            This Month
+          </button>
+          <button onclick="selectReportPeriod('comparison')" id="period-comparison" class="px-4 py-2 rounded text-sm font-medium text-gray-600 hover:bg-gray-100">
+            Month Comparison
+          </button>
+          <button onclick="selectReportPeriod('custom')" id="period-custom" class="px-4 py-2 rounded text-sm font-medium text-gray-600 hover:bg-gray-100">
+            <i class="fas fa-calendar-alt mr-1"></i>Custom Range
+          </button>
+        </div>
+        
+        <!-- Custom Date Range Picker (hidden by default) -->
+        <div id="custom-date-picker" class="hidden bg-white rounded-lg shadow p-4 inline-flex items-center space-x-3">
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">From</label>
+            <input type="date" id="custom-start-date" class="input text-sm" value="${new Date(startOfMonth).toISOString().split('T')[0]}">
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">To</label>
+            <input type="date" id="custom-end-date" class="input text-sm" value="${new Date().toISOString().split('T')[0]}">
+          </div>
+          <button onclick="applyCustomDateRange()" class="btn-primary text-sm mt-5">
+            <i class="fas fa-check mr-1"></i>Apply
+          </button>
+          <button onclick="cancelCustomDateRange()" class="btn-secondary text-sm mt-5">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
       </div>
       
       <!-- Weekly Report Section -->
@@ -879,6 +902,28 @@ async function renderReports() {
         </div>
       </div>
       
+      <!-- Custom Date Range Section -->
+      <div id="report-custom" class="report-section hidden">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">
+          <i class="fas fa-calendar-alt mr-2"></i>Custom Date Range
+        </h2>
+        
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <p class="text-sm text-blue-800">
+            <i class="fas fa-info-circle mr-2"></i>
+            Select a custom date range above and click "Apply" to generate a report for that period.
+          </p>
+        </div>
+        
+        <!-- Custom range stats will be populated here when dates are selected -->
+        <div id="custom-stats-container">
+          <div class="text-center py-12 text-gray-500">
+            <i class="fas fa-calendar-alt text-4xl mb-3"></i>
+            <p>Select dates and click Apply to generate report</p>
+          </div>
+        </div>
+      </div>
+      
       <!-- Month Comparison Section -->
       <div id="report-comparison" class="report-section hidden">
         <h2 class="text-2xl font-bold text-gray-800 mb-4">
@@ -1008,11 +1053,232 @@ function selectReportPeriod(period) {
     btn.classList.add('text-gray-600');
   });
   
+  // Show/hide custom date picker
+  const datePicker = document.getElementById('custom-date-picker');
+  if (period === 'custom') {
+    datePicker.classList.remove('hidden');
+  } else {
+    datePicker.classList.add('hidden');
+  }
+  
   // Show selected section and highlight button
   document.getElementById('report-' + period).classList.remove('hidden');
   const activeBtn = document.getElementById('period-' + period);
   activeBtn.classList.add('bg-blue-600', 'text-white');
   activeBtn.classList.remove('text-gray-600');
+}
+
+async function applyCustomDateRange() {
+  const startDate = document.getElementById('custom-start-date').value;
+  const endDate = document.getElementById('custom-end-date').value;
+  
+  if (!startDate || !endDate) {
+    showToast('Please select both start and end dates', 'error');
+    return;
+  }
+  
+  if (new Date(startDate) > new Date(endDate)) {
+    showToast('Start date must be before end date', 'error');
+    return;
+  }
+  
+  // Show loading state
+  const container = document.getElementById('custom-stats-container');
+  container.innerHTML = `
+    <div class="text-center py-12">
+      <i class="fas fa-spinner fa-spin text-4xl text-blue-600 mb-3"></i>
+      <p class="text-gray-600">Generating report...</p>
+    </div>
+  `;
+  
+  try {
+    // Fetch data
+    const [allTasks, allRisks, contactReports] = await Promise.all([
+      apiCall('/tasks'),
+      apiCall('/risks'),
+      apiCall('/contact-reports')
+    ]);
+    
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999); // Include full end date
+    
+    // Filter data by date range
+    const tasksInRange = allTasks.tasks.filter(t => {
+      const createdDate = new Date(t.created_at);
+      return createdDate >= start && createdDate <= end;
+    });
+    
+    const tasksCompletedInRange = allTasks.tasks.filter(t => {
+      const updatedDate = new Date(t.updated_at);
+      return t.status === 'completed' && updatedDate >= start && updatedDate <= end;
+    });
+    
+    const tasksOverdueInRange = allTasks.tasks.filter(t => {
+      const dueDate = new Date(t.due_date);
+      return t.status !== 'completed' && t.due_date && dueDate >= start && dueDate <= end && dueDate < new Date();
+    });
+    
+    const risksInRange = allRisks.risks.filter(r => {
+      const createdDate = new Date(r.created_at);
+      return createdDate >= start && createdDate <= end;
+    });
+    
+    const risksResolvedInRange = allRisks.risks.filter(r => {
+      const updatedDate = new Date(r.updated_at);
+      return r.status === 'closed' && updatedDate >= start && updatedDate <= end;
+    });
+    
+    const reportsInRange = contactReports.reports.filter(r => {
+      const reportDate = new Date(r.meeting_date || r.created_at);
+      return reportDate >= start && reportDate <= end;
+    });
+    
+    const completionRate = tasksInRange.length > 0 
+      ? Math.round((tasksCompletedInRange.length / tasksInRange.length) * 100) 
+      : 0;
+    
+    // Calculate date range info
+    const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+    
+    // Generate report HTML
+    container.innerHTML = `
+      <div class="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-lg font-semibold text-gray-900">
+              ${formatDate(startDate)} - ${formatDate(endDate)}
+            </h3>
+            <p class="text-sm text-gray-600">${daysDiff} day${daysDiff !== 1 ? 's' : ''} selected</p>
+          </div>
+          <button onclick="selectReportPeriod('custom')" class="text-blue-600 hover:text-blue-800 text-sm">
+            <i class="fas fa-edit mr-1"></i>Change Dates
+          </button>
+        </div>
+      </div>
+      
+      <!-- Task Metrics -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-plus-circle text-2xl"></i>
+            </div>
+          </div>
+          <div class="text-3xl font-bold mb-1">${tasksInRange.length}</div>
+          <div class="text-blue-100 text-sm">Tasks Created</div>
+        </div>
+        
+        <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-check-circle text-2xl"></i>
+            </div>
+          </div>
+          <div class="text-3xl font-bold mb-1">${tasksCompletedInRange.length}</div>
+          <div class="text-green-100 text-sm">Tasks Completed</div>
+        </div>
+        
+        <div class="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-exclamation-triangle text-2xl"></i>
+            </div>
+          </div>
+          <div class="text-3xl font-bold mb-1">${tasksOverdueInRange.length}</div>
+          <div class="text-red-100 text-sm">Tasks Overdue</div>
+        </div>
+        
+        <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-percent text-2xl"></i>
+            </div>
+          </div>
+          <div class="text-3xl font-bold mb-1">${completionRate}%</div>
+          <div class="text-purple-100 text-sm">Completion Rate</div>
+        </div>
+      </div>
+      
+      <!-- Risk & Report Metrics -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-orange-600">
+              <i class="fas fa-shield-alt text-3xl"></i>
+            </div>
+            <div class="text-right">
+              <div class="text-2xl font-bold text-gray-900">${risksInRange.length}</div>
+              <div class="text-sm text-gray-500">Risks Raised</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-green-600">
+              <i class="fas fa-check-double text-3xl"></i>
+            </div>
+            <div class="text-right">
+              <div class="text-2xl font-bold text-gray-900">${risksResolvedInRange.length}</div>
+              <div class="text-sm text-gray-500">Risks Resolved</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-blue-600">
+              <i class="fas fa-file-alt text-3xl"></i>
+            </div>
+            <div class="text-right">
+              <div class="text-2xl font-bold text-gray-900">${reportsInRange.length}</div>
+              <div class="text-sm text-gray-500">Contact Reports</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Daily Averages -->
+      <div class="mt-6 bg-gray-50 rounded-lg p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">Daily Averages</h3>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
+          <div>
+            <div class="text-2xl font-bold text-blue-600">${(tasksInRange.length / daysDiff).toFixed(1)}</div>
+            <div class="text-xs text-gray-600">Tasks/Day</div>
+          </div>
+          <div>
+            <div class="text-2xl font-bold text-green-600">${(tasksCompletedInRange.length / daysDiff).toFixed(1)}</div>
+            <div class="text-xs text-gray-600">Completed/Day</div>
+          </div>
+          <div>
+            <div class="text-2xl font-bold text-orange-600">${(risksInRange.length / daysDiff).toFixed(1)}</div>
+            <div class="text-xs text-gray-600">Risks/Day</div>
+          </div>
+          <div>
+            <div class="text-2xl font-bold text-purple-600">${(reportsInRange.length / daysDiff).toFixed(1)}</div>
+            <div class="text-xs text-gray-600">Reports/Day</div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    showToast('Custom report generated successfully', 'success');
+    
+  } catch (error) {
+    container.innerHTML = `
+      <div class="text-center py-12 text-red-500">
+        <i class="fas fa-exclamation-triangle text-4xl mb-3"></i>
+        <p>Error generating report: ${error.message}</p>
+      </div>
+    `;
+    showToast('Failed to generate report', 'error');
+  }
+}
+
+function cancelCustomDateRange() {
+  // Reset to default view
+  selectReportPeriod('week');
 }
 
 // ========== TEMPLATES VIEW ==========
