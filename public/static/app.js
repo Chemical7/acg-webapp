@@ -83,6 +83,18 @@ function viewApproval(approvalId) {
   navigate('approvals');
 }
 
+function viewReport(reportId) {
+  showToast('Report details coming soon!', 'info');
+}
+
+function viewProjectReports(projectId) {
+  showToast('Project reports view coming soon!', 'info');
+}
+
+function showCreateReportModal() {
+  showToast('Create report modal coming soon!', 'info');
+}
+
 function renderNavigation() {
   return `
     <nav class="bg-blue-900 text-white shadow-lg">
@@ -108,6 +120,9 @@ function renderNavigation() {
               </button>
               <button onclick="navigate('analytics')" class="nav-btn ${currentView === 'analytics' ? 'nav-active' : ''}">
                 <i class="fas fa-chart-line mr-2"></i>Analytics
+              </button>
+              <button onclick="navigate('reports')" class="nav-btn ${currentView === 'reports' ? 'nav-active' : ''}">
+                <i class="fas fa-file-invoice mr-2"></i>Reports
               </button>
             </div>
           </div>
@@ -586,6 +601,236 @@ async function renderApprovals() {
             `).join('')}
           </div>`
         }
+      </div>
+    </div>
+  `;
+}
+
+// ========== REPORTS VIEW ==========
+async function renderReports() {
+  const [contactReports, projects, analytics, projectHealth] = await Promise.all([
+    apiCall('/contact-reports'),
+    apiCall('/projects'),
+    apiCall('/analytics/overview'),
+    apiCall('/analytics/project-health')
+  ]);
+  
+  // Group reports by project
+  const reportsByProject = {};
+  contactReports.reports.forEach(report => {
+    if (!reportsByProject[report.project_id]) {
+      reportsByProject[report.project_id] = [];
+    }
+    reportsByProject[report.project_id].push(report);
+  });
+  
+  // Calculate summary stats
+  const totalReports = contactReports.reports.length;
+  const reportsThisMonth = contactReports.reports.filter(r => {
+    const reportDate = new Date(r.meeting_date || r.created_at);
+    const now = new Date();
+    return reportDate.getMonth() === now.getMonth() && reportDate.getFullYear() === now.getFullYear();
+  }).length;
+  
+  const activeProjects = projects.projects.filter(p => p.status === 'active').length;
+  
+  return `
+    <div class="space-y-6">
+      <!-- Header -->
+      <div class="flex items-center justify-between">
+        <h1 class="text-3xl font-bold text-gray-900">
+          <i class="fas fa-file-invoice mr-3"></i>Reports & Documentation
+        </h1>
+        <button onclick="showCreateReportModal()" class="btn-primary">
+          <i class="fas fa-plus mr-2"></i>New Contact Report
+        </button>
+      </div>
+      
+      <!-- Summary Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-file-alt text-2xl"></i>
+            </div>
+          </div>
+          <div class="text-3xl font-bold mb-1">${totalReports}</div>
+          <div class="text-blue-100 text-sm">Total Reports</div>
+        </div>
+        
+        <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-calendar-check text-2xl"></i>
+            </div>
+          </div>
+          <div class="text-3xl font-bold mb-1">${reportsThisMonth}</div>
+          <div class="text-green-100 text-sm">This Month</div>
+        </div>
+        
+        <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-folder-open text-2xl"></i>
+            </div>
+          </div>
+          <div class="text-3xl font-bold mb-1">${activeProjects}</div>
+          <div class="text-purple-100 text-sm">Active Projects</div>
+        </div>
+        
+        <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex items-center justify-between mb-4">
+            <div class="bg-white/20 rounded-lg p-3">
+              <i class="fas fa-chart-line text-2xl"></i>
+            </div>
+          </div>
+          <div class="text-3xl font-bold mb-1">${Math.round(reportsThisMonth / (activeProjects || 1) * 10) / 10}</div>
+          <div class="text-orange-100 text-sm">Avg Reports/Project</div>
+        </div>
+      </div>
+      
+      <!-- Contact Reports by Project -->
+      <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-blue-50">
+          <h2 class="text-xl font-semibold text-gray-900">
+            <i class="fas fa-address-book mr-2 text-indigo-600"></i>Contact Reports
+          </h2>
+        </div>
+        <div class="p-6">
+          ${projects.projects.filter(p => reportsByProject[p.id]).length === 0 ? 
+            '<p class="text-gray-500 text-center py-8">No contact reports yet. Create your first report above.</p>' :
+            `<div class="space-y-6">
+              ${projects.projects
+                .filter(p => reportsByProject[p.id])
+                .map(project => `
+                  <div class="border rounded-lg overflow-hidden">
+                    <!-- Project Header -->
+                    <div class="bg-gray-50 px-4 py-3 border-b">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                          <i class="fas fa-folder text-blue-600"></i>
+                          <span class="font-semibold text-gray-900">${project.name}</span>
+                          <span class="text-sm text-gray-500">(${reportsByProject[project.id].length} reports)</span>
+                        </div>
+                        <span class="text-xs px-2 py-1 rounded ${project.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                          ${project.status}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <!-- Reports List -->
+                    <div class="divide-y divide-gray-200">
+                      ${reportsByProject[project.id].slice(0, 3).map(report => `
+                        <div class="p-4 hover:bg-gray-50 transition-colors">
+                          <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                              <div class="flex items-center space-x-3 mb-2">
+                                <i class="fas fa-calendar-alt text-gray-400 text-sm"></i>
+                                <span class="text-sm font-medium text-gray-900">${formatDate(report.meeting_date || report.created_at)}</span>
+                                <span class="text-xs text-gray-500">by ${report.created_by_name}</span>
+                              </div>
+                              <p class="text-sm text-gray-700 mb-2">${report.summary}</p>
+                              <div class="flex items-center space-x-4 text-xs text-gray-500">
+                                ${report.attendees.length > 0 ? `<span><i class="fas fa-users mr-1"></i>${report.attendees.length} attendees</span>` : ''}
+                                ${report.action_items.length > 0 ? `<span><i class="fas fa-tasks mr-1"></i>${report.action_items.length} action items</span>` : ''}
+                                ${report.sent_to.length > 0 ? `<span><i class="fas fa-envelope mr-1"></i>${report.sent_to.length} recipients</span>` : ''}
+                              </div>
+                            </div>
+                            <button onclick="viewReport(${report.id})" class="btn-secondary text-sm ml-4">
+                              <i class="fas fa-eye"></i>
+                            </button>
+                          </div>
+                        </div>
+                      `).join('')}
+                      ${reportsByProject[project.id].length > 3 ? `
+                        <div class="p-3 bg-gray-50 text-center">
+                          <button onclick="viewProjectReports(${project.id})" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                            View all ${reportsByProject[project.id].length} reports →
+                          </button>
+                        </div>
+                      ` : ''}
+                    </div>
+                  </div>
+                `).join('')}
+            </div>`
+          }
+        </div>
+      </div>
+      
+      <!-- Project Status Summary -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Recent Activity -->
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+          <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50">
+            <h2 class="text-xl font-semibold text-gray-900">
+              <i class="fas fa-clock mr-2 text-green-600"></i>Recent Reports
+            </h2>
+          </div>
+          <div class="p-6">
+            <div class="space-y-3">
+              ${contactReports.reports.slice(0, 5).map(report => `
+                <div class="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50">
+                  <div class="flex-shrink-0">
+                    <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                      <i class="fas fa-file-alt text-blue-600"></i>
+                    </div>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-gray-900 truncate">${report.project_name}</p>
+                    <p class="text-xs text-gray-500">${formatDate(report.meeting_date || report.created_at)}</p>
+                  </div>
+                  <button onclick="viewReport(${report.id})" class="text-blue-600 hover:text-blue-800">
+                    <i class="fas fa-chevron-right"></i>
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+        
+        <!-- Quick Stats -->
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+          <div class="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-yellow-50 to-amber-50">
+            <h2 class="text-xl font-semibold text-gray-900">
+              <i class="fas fa-chart-bar mr-2 text-yellow-600"></i>Performance Overview
+            </h2>
+          </div>
+          <div class="p-6">
+            <div class="space-y-4">
+              <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                <div class="flex items-center space-x-3">
+                  <i class="fas fa-tasks text-blue-600"></i>
+                  <span class="text-sm font-medium text-gray-900">Tasks Due This Week</span>
+                </div>
+                <span class="text-lg font-bold text-blue-600">${analytics.tasks_due_this_week}</span>
+              </div>
+              
+              <div class="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                <div class="flex items-center space-x-3">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                  <span class="text-sm font-medium text-gray-900">Overdue Tasks</span>
+                </div>
+                <span class="text-lg font-bold text-red-600">${analytics.overdue_tasks}</span>
+              </div>
+              
+              <div class="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
+                <div class="flex items-center space-x-3">
+                  <i class="fas fa-shield-alt text-orange-600"></i>
+                  <span class="text-sm font-medium text-gray-900">Open Risks</span>
+                </div>
+                <span class="text-lg font-bold text-orange-600">${analytics.open_risks}</span>
+              </div>
+              
+              <div class="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+                <div class="flex items-center space-x-3">
+                  <i class="fas fa-hourglass-half text-purple-600"></i>
+                  <span class="text-sm font-medium text-gray-900">Pending Approvals</span>
+                </div>
+                <span class="text-lg font-bold text-purple-600">${analytics.pending_approvals}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -1471,6 +1716,9 @@ async function renderApp() {
       break;
     case 'analytics':
       content = await renderAnalytics();
+      break;
+    case 'reports':
+      content = await renderReports();
       break;
   }
   
