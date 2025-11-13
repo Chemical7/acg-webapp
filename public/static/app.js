@@ -598,14 +598,18 @@ async function renderApprovals() {
 
 // ========== REPORTS VIEW ==========
 async function renderReports() {
-  const [contactReports, projects, analytics, projectHealth, allTasks, allRisks] = await Promise.all([
+  const [contactReports, projects, analytics, projectHealth, allTasks, allRisks, users] = await Promise.all([
     apiCall('/contact-reports'),
     apiCall('/projects'),
     apiCall('/analytics/overview'),
     apiCall('/analytics/project-health'),
     apiCall('/tasks'),
-    apiCall('/risks')
+    apiCall('/risks'),
+    apiCall('/users')
   ]);
+  
+  // Store users globally for later use
+  window.reportUsers = users.users;
   
   // Calculate date ranges
   const now = new Date();
@@ -691,6 +695,9 @@ async function renderReports() {
           <button onclick="selectReportPeriod('custom')" id="period-custom" class="px-4 py-2 rounded text-sm font-medium text-gray-600 hover:bg-gray-100">
             <i class="fas fa-calendar-alt mr-1"></i>Custom Range
           </button>
+          <button onclick="selectReportPeriod('user')" id="period-user" class="px-4 py-2 rounded text-sm font-medium text-gray-600 hover:bg-gray-100">
+            <i class="fas fa-user mr-1"></i>User Report
+          </button>
         </div>
         
         <!-- Custom Date Range Picker (hidden by default) -->
@@ -707,6 +714,31 @@ async function renderReports() {
             <i class="fas fa-check mr-1"></i>Apply
           </button>
           <button onclick="cancelCustomDateRange()" class="btn-secondary text-sm mt-5">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        
+        <!-- User Report Picker (hidden by default) -->
+        <div id="user-report-picker" class="hidden bg-white rounded-lg shadow p-4 inline-flex items-center space-x-3">
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Select User</label>
+            <select id="user-select" class="input text-sm" style="min-width: 200px;">
+              <option value="">All Users</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Period</label>
+            <select id="user-period-select" class="input text-sm">
+              <option value="week">This Week</option>
+              <option value="month" selected>This Month</option>
+              <option value="quarter">This Quarter</option>
+              <option value="all">All Time</option>
+            </select>
+          </div>
+          <button onclick="applyUserReport()" class="btn-primary text-sm mt-5">
+            <i class="fas fa-chart-bar mr-1"></i>Generate
+          </button>
+          <button onclick="cancelUserReport()" class="btn-secondary text-sm mt-5">
             <i class="fas fa-times"></i>
           </button>
         </div>
@@ -924,6 +956,28 @@ async function renderReports() {
         </div>
       </div>
       
+      <!-- User Report Section -->
+      <div id="report-user" class="report-section hidden">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">
+          <i class="fas fa-user mr-2"></i>User Performance Report
+        </h2>
+        
+        <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-6">
+          <p class="text-sm text-indigo-800">
+            <i class="fas fa-info-circle mr-2"></i>
+            Select a user and time period above to generate an individual performance report.
+          </p>
+        </div>
+        
+        <!-- User report stats will be populated here when user is selected -->
+        <div id="user-stats-container">
+          <div class="text-center py-12 text-gray-500">
+            <i class="fas fa-user-chart text-4xl mb-3"></i>
+            <p>Select a user and click Generate to create report</p>
+          </div>
+        </div>
+      </div>
+      
       <!-- Month Comparison Section -->
       <div id="report-comparison" class="report-section hidden">
         <h2 class="text-2xl font-bold text-gray-800 mb-4">
@@ -1053,12 +1107,19 @@ function selectReportPeriod(period) {
     btn.classList.add('text-gray-600');
   });
   
-  // Show/hide custom date picker
+  // Hide all pickers
   const datePicker = document.getElementById('custom-date-picker');
+  const userPicker = document.getElementById('user-report-picker');
+  datePicker.classList.add('hidden');
+  userPicker.classList.add('hidden');
+  
+  // Show/hide appropriate picker
   if (period === 'custom') {
     datePicker.classList.remove('hidden');
-  } else {
-    datePicker.classList.add('hidden');
+  } else if (period === 'user') {
+    userPicker.classList.remove('hidden');
+    // Populate user dropdown if not already done
+    populateUserDropdown();
   }
   
   // Show selected section and highlight button
@@ -1066,6 +1127,20 @@ function selectReportPeriod(period) {
   const activeBtn = document.getElementById('period-' + period);
   activeBtn.classList.add('bg-blue-600', 'text-white');
   activeBtn.classList.remove('text-gray-600');
+}
+
+function populateUserDropdown() {
+  const select = document.getElementById('user-select');
+  if (select.options.length > 1) return; // Already populated
+  
+  if (window.reportUsers) {
+    window.reportUsers.forEach(user => {
+      const option = document.createElement('option');
+      option.value = user.id;
+      option.textContent = `${user.name} (${user.role})`;
+      select.appendChild(option);
+    });
+  }
 }
 
 async function applyCustomDateRange() {
@@ -1277,6 +1352,311 @@ async function applyCustomDateRange() {
 }
 
 function cancelCustomDateRange() {
+  // Reset to default view
+  selectReportPeriod('week');
+}
+
+async function applyUserReport() {
+  const userId = document.getElementById('user-select').value;
+  const period = document.getElementById('user-period-select').value;
+  
+  if (!userId) {
+    showToast('Please select a user', 'error');
+    return;
+  }
+  
+  // Show loading state
+  const container = document.getElementById('user-stats-container');
+  container.innerHTML = `
+    <div class="text-center py-12">
+      <i class="fas fa-spinner fa-spin text-4xl text-indigo-600 mb-3"></i>
+      <p class="text-gray-600">Generating user report...</p>
+    </div>
+  `;
+  
+  try {
+    // Fetch data
+    const [allTasks, allRisks, contactReports, approvals] = await Promise.all([
+      apiCall('/tasks'),
+      apiCall('/risks'),
+      apiCall('/contact-reports'),
+      apiCall('/approvals/pending')
+    ]);
+    
+    // Calculate date range based on period
+    const now = new Date();
+    let startDate;
+    
+    switch(period) {
+      case 'week':
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - now.getDay());
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'quarter':
+        const quarter = Math.floor(now.getMonth() / 3);
+        startDate = new Date(now.getFullYear(), quarter * 3, 1);
+        break;
+      case 'all':
+        startDate = new Date(0); // Beginning of time
+        break;
+    }
+    
+    // Find user info
+    const user = window.reportUsers.find(u => u.id == userId);
+    
+    // Filter tasks by user
+    const userTasks = allTasks.tasks.filter(t => t.owner_id == userId);
+    const userTasksInPeriod = userTasks.filter(t => new Date(t.created_at) >= startDate);
+    const userTasksCompleted = userTasks.filter(t => 
+      t.status === 'completed' && new Date(t.updated_at) >= startDate
+    );
+    const userTasksOverdue = userTasks.filter(t => 
+      t.status !== 'completed' && t.due_date && new Date(t.due_date) < now && new Date(t.due_date) >= startDate
+    );
+    const userTasksPending = userTasks.filter(t => t.status === 'pending' || t.status === 'in_progress');
+    
+    // Filter risks owned by user
+    const userRisks = allRisks.risks.filter(r => r.owner_id == userId);
+    const userRisksInPeriod = userRisks.filter(r => new Date(r.created_at) >= startDate);
+    const userRisksOpen = userRisks.filter(r => r.status === 'open');
+    const userRisksResolved = userRisks.filter(r => 
+      r.status === 'closed' && new Date(r.updated_at) >= startDate
+    );
+    
+    // Filter contact reports created by user
+    const userReports = contactReports.reports.filter(r => r.created_by == userId);
+    const userReportsInPeriod = userReports.filter(r => {
+      const reportDate = new Date(r.meeting_date || r.created_at);
+      return reportDate >= startDate;
+    });
+    
+    // Calculate completion rate
+    const completionRate = userTasksInPeriod.length > 0 
+      ? Math.round((userTasksCompleted.length / userTasksInPeriod.length) * 100) 
+      : 0;
+    
+    // Calculate average task completion time
+    const completedTasksWithDates = userTasksCompleted.filter(t => t.due_date && t.updated_at);
+    const avgCompletionDays = completedTasksWithDates.length > 0
+      ? Math.round(completedTasksWithDates.reduce((sum, t) => {
+          const completed = new Date(t.updated_at);
+          const due = new Date(t.due_date);
+          const days = (completed - due) / (1000 * 60 * 60 * 24);
+          return sum + days;
+        }, 0) / completedTasksWithDates.length)
+      : 0;
+    
+    // Get period label
+    const periodLabels = {
+      'week': 'This Week',
+      'month': 'This Month',
+      'quarter': 'This Quarter',
+      'all': 'All Time'
+    };
+    
+    // Group tasks by project
+    const tasksByProject = {};
+    userTasks.forEach(task => {
+      if (!tasksByProject[task.project_name]) {
+        tasksByProject[task.project_name] = [];
+      }
+      tasksByProject[task.project_name].push(task);
+    });
+    const activeProjects = Object.keys(tasksByProject).length;
+    
+    // Generate report HTML
+    container.innerHTML = `
+      <!-- User Header -->
+      <div class="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl shadow-lg p-6 text-white mb-6">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-4">
+            <div class="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center">
+              <i class="fas fa-user text-3xl"></i>
+            </div>
+            <div>
+              <h3 class="text-2xl font-bold">${user.name}</h3>
+              <p class="text-indigo-100">${user.role.replace('_', ' ').toUpperCase()} • ${user.email}</p>
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-sm text-indigo-100">Report Period</div>
+            <div class="text-xl font-bold">${periodLabels[period]}</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Summary Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-blue-600">
+              <i class="fas fa-tasks text-3xl"></i>
+            </div>
+            <div class="text-right">
+              <div class="text-2xl font-bold text-gray-900">${userTasks.length}</div>
+              <div class="text-sm text-gray-500">Total Tasks</div>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500">${userTasksInPeriod.length} in period</div>
+        </div>
+        
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-green-600">
+              <i class="fas fa-check-circle text-3xl"></i>
+            </div>
+            <div class="text-right">
+              <div class="text-2xl font-bold text-gray-900">${userTasksCompleted.length}</div>
+              <div class="text-sm text-gray-500">Completed</div>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500">${completionRate}% completion rate</div>
+        </div>
+        
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-orange-600">
+              <i class="fas fa-shield-alt text-3xl"></i>
+            </div>
+            <div class="text-right">
+              <div class="text-2xl font-bold text-gray-900">${userRisksOpen.length}</div>
+              <div class="text-sm text-gray-500">Open Risks</div>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500">${userRisksResolved.length} resolved in period</div>
+        </div>
+        
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-purple-600">
+              <i class="fas fa-file-alt text-3xl"></i>
+            </div>
+            <div class="text-right">
+              <div class="text-2xl font-bold text-gray-900">${userReportsInPeriod.length}</div>
+              <div class="text-sm text-gray-500">Reports Filed</div>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500">${userReports.length} total reports</div>
+        </div>
+      </div>
+      
+      <!-- Performance Metrics -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <!-- Task Breakdown -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">
+            <i class="fas fa-chart-pie mr-2 text-blue-600"></i>Task Breakdown
+          </h3>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+              <div class="flex items-center space-x-3">
+                <i class="fas fa-check text-green-600"></i>
+                <span class="text-sm font-medium text-gray-700">Completed</span>
+              </div>
+              <span class="text-lg font-bold text-green-600">${userTasksCompleted.length}</span>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
+              <div class="flex items-center space-x-3">
+                <i class="fas fa-clock text-yellow-600"></i>
+                <span class="text-sm font-medium text-gray-700">In Progress</span>
+              </div>
+              <span class="text-lg font-bold text-yellow-600">${userTasksPending.length}</span>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+              <div class="flex items-center space-x-3">
+                <i class="fas fa-exclamation-triangle text-red-600"></i>
+                <span class="text-sm font-medium text-gray-700">Overdue</span>
+              </div>
+              <span class="text-lg font-bold text-red-600">${userTasksOverdue.length}</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Key Metrics -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+          <h3 class="text-lg font-semibold text-gray-800 mb-4">
+            <i class="fas fa-tachometer-alt mr-2 text-purple-600"></i>Key Metrics
+          </h3>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between p-3 bg-indigo-50 rounded-lg">
+              <div>
+                <div class="text-sm text-gray-600">Projects Involved</div>
+                <div class="text-2xl font-bold text-indigo-600">${activeProjects}</div>
+              </div>
+              <i class="fas fa-folder-open text-indigo-600 text-2xl"></i>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+              <div>
+                <div class="text-sm text-gray-600">Completion Rate</div>
+                <div class="text-2xl font-bold text-purple-600">${completionRate}%</div>
+              </div>
+              <i class="fas fa-percent text-purple-600 text-2xl"></i>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 ${avgCompletionDays <= 0 ? 'bg-green-50' : 'bg-orange-50'} rounded-lg">
+              <div>
+                <div class="text-sm text-gray-600">Avg Completion</div>
+                <div class="text-2xl font-bold ${avgCompletionDays <= 0 ? 'text-green-600' : 'text-orange-600'}">
+                  ${avgCompletionDays <= 0 ? 'On Time' : avgCompletionDays + 'd late'}
+                </div>
+              </div>
+              <i class="fas fa-calendar-check ${avgCompletionDays <= 0 ? 'text-green-600' : 'text-orange-600'} text-2xl"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Projects List -->
+      <div class="bg-white rounded-xl shadow-lg p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">
+          <i class="fas fa-list mr-2 text-gray-600"></i>Active Projects
+        </h3>
+        <div class="space-y-2">
+          ${Object.entries(tasksByProject).slice(0, 10).map(([project, tasks]) => {
+            const completed = tasks.filter(t => t.status === 'completed').length;
+            const percentage = Math.round((completed / tasks.length) * 100);
+            return `
+              <div class="p-3 border rounded-lg hover:bg-gray-50">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="font-medium text-gray-900 text-sm">${project}</span>
+                  <span class="text-xs font-semibold text-gray-600">${completed}/${tasks.length} tasks</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                  <div class="bg-gradient-to-r from-blue-400 to-blue-600 h-2 rounded-full" style="width: ${percentage}%"></div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+          ${Object.keys(tasksByProject).length > 10 ? `
+            <div class="text-center pt-2">
+              <span class="text-sm text-gray-500">+ ${Object.keys(tasksByProject).length - 10} more projects</span>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+    
+    showToast('User report generated successfully', 'success');
+    
+  } catch (error) {
+    container.innerHTML = `
+      <div class="text-center py-12 text-red-500">
+        <i class="fas fa-exclamation-triangle text-4xl mb-3"></i>
+        <p>Error generating report: ${error.message}</p>
+      </div>
+    `;
+    showToast('Failed to generate user report', 'error');
+  }
+}
+
+function cancelUserReport() {
   // Reset to default view
   selectReportPeriod('week');
 }
