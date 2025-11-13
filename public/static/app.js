@@ -105,7 +105,7 @@ function renderNavigation() {
           </div>
           <div class="flex items-center space-x-4">
             <button onclick="toggleAssistant()" class="nav-btn">
-              <i class="fas fa-sparkles mr-2"></i>ACGPT
+              <i class="fas fa-robot mr-2"></i>Ask ACGPT
             </button>
             <div class="flex items-center space-x-2">
               <i class="fas fa-user-circle text-2xl"></i>
